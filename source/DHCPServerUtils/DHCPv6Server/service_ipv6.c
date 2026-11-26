@@ -51,6 +51,8 @@
 #include "ifl.h"
 #include <libnet.h>
 
+int is_safe_dnssl_chars(const char *value);
+
 #if defined(MULTILAN_FEATURE) || defined(INTEL_PUMA7)
 #include "ccsp_psm_helper.h"
 #include <ccsp_base_api.h>
@@ -1752,6 +1754,7 @@ OPTIONS:
             {
                 char dyn_dns[256] = {0};
                 ifl_get_event( "ipv6_nameserver", dyn_dns, sizeof(dyn_dns));
+                dyn_dns[sizeof(dyn_dns) - 1] = '\0';
                 if ( '\0' == dhcpv6s_pool_cfg.X_RDKCENTRAL_COM_DNSServers[ 0 ] )
                 {
                    strcpy( dhcpv6s_pool_cfg.X_RDKCENTRAL_COM_DNSServers,dyn_dns );
@@ -1767,18 +1770,23 @@ OPTIONS:
                                         if( 1 == dhcpv6s_pool_cfg.X_RDKCENTRAL_COM_DNSServersEnabled )
                                         {
 
-                                                memset( dns_str, 0, sizeof( dns_str ) );
+                                                /* H010 & H014*/
+                                                char static_dns[256] = {0};
                                                 if (!strncmp(l_cSecWebUI_Enabled, "true", 4))
                                                 {
-                                                    char static_dns[256] = {0};
                                                     ifl_get_event( "lan_ipaddr_v6", static_dns, sizeof(static_dns));
-                                                    if ( '\0' != static_dns[ 0 ] )
-                                                    {
-                                                        strcpy( dns_str, static_dns );
-                                                        strcat(dns_str," ");
-                                                    }
                                                 }
-                                                strcat(dns_str,dhcpv6s_pool_cfg.X_RDKCENTRAL_COM_DNSServers);
+                                                static_dns[sizeof(static_dns) - 1] = '\0';
+                                                dhcpv6s_pool_cfg.X_RDKCENTRAL_COM_DNSServers[
+                                                    sizeof(dhcpv6s_pool_cfg.X_RDKCENTRAL_COM_DNSServers) - 1] = '\0';
+                                                int dns_len = snprintf(dns_str, sizeof(dns_str), "%s%s%s",
+                                                                       static_dns, static_dns[0] != '\0' ? " " : "",
+                                                                       dhcpv6s_pool_cfg.X_RDKCENTRAL_COM_DNSServers);
+                                                if (dns_len < 0 || (size_t)dns_len >= sizeof(dns_str))
+                                                {
+                                                    fprintf(stderr, "%s: DNS server list formatting failed or exceeded buffer size\n", __FUNCTION__);
+                                                    continue;
+                                                }
 
                                                 fprintf(stderr,"%s %d - DNSServersEnabled:%d DNSServers:%s\n", __FUNCTION__,
                                                                                                                                                           __LINE__,
@@ -1800,9 +1808,15 @@ OPTIONS:
                 else if (opt.tag == 24) {//domain
                     char domain_str[256] = {0};
                     ifl_get_event( "ipv6_dnssl", domain_str, sizeof(domain_str));
+                    domain_str[sizeof(domain_str) - 1] = '\0';
                     if (domain_str[0] != '\0') {
-                        format_dibbler_option(domain_str);
-                        fprintf(fp, "     option %s %s\n", tag_list[tag_index].opt_str, domain_str);
+                        /*H005 H021 H023*/
+                        if (format_dibbler_option(domain_str) == 0 &&
+                            is_safe_dnssl_chars(domain_str)) {
+                            fprintf(fp, "     option %s %s\n", tag_list[tag_index].opt_str, domain_str);
+                        } else {
+                            DHCPMGR_LOG_WARNING("Ignoring invalid DHCPv6 domain search list\n");
+                        }
                     }
                 }
             } else {

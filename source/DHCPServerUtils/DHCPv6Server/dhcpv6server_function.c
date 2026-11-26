@@ -619,6 +619,27 @@ static int getLanUlaInfo(int *ula_enable)
 }
 #endif
 
+/* H005 H021 H023 */
+int is_safe_dnssl_chars(const char *value)
+{
+    const unsigned char *p = (const unsigned char *)value;
+
+    if (p == NULL || *p == '\0')
+        return 0;
+
+    for (; *p != '\0'; ++p) {
+        if ((*p >= 'a' && *p <= 'z') ||
+            (*p >= 'A' && *p <= 'Z') ||
+            (*p >= '0' && *p <= '9') ||
+            *p == '.' || *p == ',' || *p == '-')
+            continue;
+
+        return 0;
+    }
+
+    return 1;
+}
+
 #ifdef _COSA_INTEL_USG_ARM_
 void __cosa_dhcpsv6_refresh_config()
 {
@@ -1070,15 +1091,21 @@ OPTIONS:
                     char domain_str[256] = {0};
                         DHCPMGR_LOG_WARNING("_cosa_dhcpsv6_refresh_config -- Tag is 24 \n");
                     ifl_get_event ("ipv6_dnssl", domain_str, sizeof(domain_str));
+                    domain_str[sizeof(domain_str) - 1] = '\0'; //H005 
                     if (domain_str[0] != '\0') {
-                        format_dibbler_option(domain_str);
-                        if( isInCaptivePortal == TRUE )
-                        {
-                            fprintf(fp, "#    option %s %s\n", tagList[Index3].cmdstring, domain_str);
-                        }
-                        else
-                        {
-                            fprintf(fp, "     option %s %s\n", tagList[Index3].cmdstring, domain_str);
+                        /* H005 H021 H023*/
+                        if (format_dibbler_option(domain_str) == 0 &&
+                            is_safe_dnssl_chars(domain_str)) {
+                            if( isInCaptivePortal == TRUE )
+                            {
+                                fprintf(fp, "#    option %s %s\n", tagList[Index3].cmdstring, domain_str);
+                            }
+                            else
+                            {
+                                fprintf(fp, "     option %s %s\n", tagList[Index3].cmdstring, domain_str);
+                            }
+                        } else {
+                            DHCPMGR_LOG_WARNING("Ignoring invalid DHCPv6 domain search list\n");
                         }
                     }
                 }
